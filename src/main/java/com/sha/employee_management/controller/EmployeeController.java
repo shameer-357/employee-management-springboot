@@ -1,5 +1,6 @@
 package com.sha.employee_management.controller;
 
+import com.sha.employee_management.dto.EmployeeDTO;
 import com.sha.employee_management.entity.Employee;
 import com.sha.employee_management.service.EmployeeService;
 import org.springframework.data.domain.Page;
@@ -19,24 +20,24 @@ public class EmployeeController {
     }
 
     @GetMapping("/page")
-    public Page<Employee> getEmployees(Pageable pageable) {
+    public Page<EmployeeDTO> getEmployees(Pageable pageable) {
         return service.getEmployees(pageable);
     }
 
     @PostMapping
-    public Employee createEmployee(@RequestBody Employee employee) {
-        return service.saveEmployee(employee);
+    public EmployeeDTO createEmployee(@RequestBody EmployeeDTO employeeDTO){
+        return service.saveEmployee(employeeDTO);
     }
 
     @GetMapping
-    public List<Employee> getEmployees() {
+    public List<EmployeeDTO> getEmployees() {
         return service.getAllEmployees();
     }
 
     @PutMapping("/{id}")
-    public Employee updateEmployee(@PathVariable Long id,
-                                   @RequestBody Employee employee) {
-        return service.updateEmployee(id, employee);
+    public EmployeeDTO updateEmployee(@PathVariable Long id,
+                                      @RequestBody EmployeeDTO employeeDTO) {
+        return service.updateEmployee(id, employeeDTO);
     }
 
     @DeleteMapping("/{id}")
