@@ -51,21 +51,31 @@ src/
           employee_management/
             auth/
               AuthController.java
+              AuthResponse.java
               LoginRequest.java
+              RegisterRequest.java
             config/
               CorsConfig.java
+              DataInitializer.java
               OpenApiConfig.java
               SecurityConfig.java
             controller/
               EmployeeController.java
+              UserController.java
             dto/
+              ChangePasswordRequest.java
+              CreateUserRequest.java
               EmployeeDTO.java
+              ErrorResponse.java
+              UserResponse.java
             entity/
               Employee.java
               Role.java
               User.java
             exception/
               GlobalExceptionHandler.java
+              ResourceNotFoundException.java
+              UserAlreadyExistsException.java
             repository/
               EmployeeRepository.java
               UserRepository.java
@@ -87,16 +97,728 @@ src/
       com/
         sha/
           employee_management/
+            service/
+              EmployeeServiceImplTest.java
+              UserServiceImplTest.java
+            AuthControllerTest.java
+            DataInitializerTest.java
             EmployeeManagementApplicationTests.java
+            EmployeeValidationAndExceptionTest.java
+            JwtServiceTest.java
+            UserControllerTest.java
+.dockerignore
+.env.example
 .gitattributes
 .gitignore
+docker-compose.yml
+Dockerfile
 mvnw
 mvnw.cmd
 pom.xml
+README.md
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="src/test/java/com/sha/employee_management/service/EmployeeServiceImplTest.java">
+package com.sha.employee_management.service;
+
+import com.sha.employee_management.dto.EmployeeDTO;
+import com.sha.employee_management.entity.Employee;
+import com.sha.employee_management.exception.ResourceNotFoundException;
+import com.sha.employee_management.repository.EmployeeRepository;
+import com.sha.employee_management.service.impl.EmployeeServiceImpl;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class EmployeeServiceImplTest {
+
+    @Mock
+    private EmployeeRepository employeeRepository;
+
+    @InjectMocks
+    private EmployeeServiceImpl employeeService;
+
+    private Employee employee1;
+    private Employee employee2;
+    private EmployeeDTO employeeDTO;
+
+    @BeforeEach
+    void setUp() {
+        employee1 = new Employee();
+        employee1.setId(1L);
+        employee1.setName("Alice Johnson");
+        employee1.setEmail("alice@example.com");
+        employee1.setDepartment("Engineering");
+
+        employee2 = new Employee();
+        employee2.setId(2L);
+        employee2.setName("Bob Smith");
+        employee2.setEmail("bob@example.com");
+        employee2.setDepartment("Marketing");
+
+        employeeDTO = new EmployeeDTO();
+        employeeDTO.setName("Alice Johnson");
+        employeeDTO.setEmail("alice@example.com");
+        employeeDTO.setDepartment("Engineering");
+    }
+
+    @Test
+    @DisplayName("Create employee successfully")
+    void testSaveEmployee() {
+        when(employeeRepository.save(any(Employee.class))).thenReturn(employee1);
+
+        EmployeeDTO savedDTO = employeeService.saveEmployee(employeeDTO);
+
+        assertNotNull(savedDTO);
+        assertEquals(1L, savedDTO.getId());
+        assertEquals("Alice Johnson", savedDTO.getName());
+        assertEquals("alice@example.com", savedDTO.getEmail());
+        assertEquals("Engineering", savedDTO.getDepartment());
+
+        verify(employeeRepository, times(1)).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("Get all employees successfully")
+    void testGetAllEmployees() {
+        when(employeeRepository.findAll()).thenReturn(List.of(employee1, employee2));
+
+        List<EmployeeDTO> employees = employeeService.getAllEmployees();
+
+        assertNotNull(employees);
+        assertEquals(2, employees.size());
+        assertEquals("Alice Johnson", employees.get(0).getName());
+        assertEquals("Bob Smith", employees.get(1).getName());
+
+        verify(employeeRepository, times(1)).findAll();
+    }
+
+    @Test
+    @DisplayName("Fetch paginated employees successfully")
+    void testGetEmployeesPaginated() {
+        Pageable pageable = PageRequest.of(0, 10);
+        Page<Employee> employeePage = new PageImpl<>(List.of(employee1, employee2), pageable, 2);
+
+        when(employeeRepository.findAll(pageable)).thenReturn(employeePage);
+
+        Page<EmployeeDTO> resultPage = employeeService.getEmployees(pageable);
+
+        assertNotNull(resultPage);
+        assertEquals(2, resultPage.getTotalElements());
+        assertEquals(1, resultPage.getTotalPages());
+        assertEquals(2, resultPage.getContent().size());
+        assertEquals("Alice Johnson", resultPage.getContent().get(0).getName());
+
+        verify(employeeRepository, times(1)).findAll(pageable);
+    }
+
+    @Test
+    @DisplayName("Update employee successfully when ID exists")
+    void testUpdateEmployee_Success() {
+        EmployeeDTO updateInfo = new EmployeeDTO();
+        updateInfo.setName("Alice Updated");
+        updateInfo.setEmail("alice.new@example.com");
+        updateInfo.setDepartment("DevOps");
+
+        Employee updatedEmployee = new Employee();
+        updatedEmployee.setId(1L);
+        updatedEmployee.setName("Alice Updated");
+        updatedEmployee.setEmail("alice.new@example.com");
+        updatedEmployee.setDepartment("DevOps");
+
+        when(employeeRepository.findById(1L)).thenReturn(Optional.of(employee1));
+        when(employeeRepository.save(any(Employee.class))).thenReturn(updatedEmployee);
+
+        EmployeeDTO result = employeeService.updateEmployee(1L, updateInfo);
+
+        assertNotNull(result);
+        assertEquals(1L, result.getId());
+        assertEquals("Alice Updated", result.getName());
+        assertEquals("alice.new@example.com", result.getEmail());
+        assertEquals("DevOps", result.getDepartment());
+
+        verify(employeeRepository, times(1)).findById(1L);
+        verify(employeeRepository, times(1)).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("Update employee throws ResourceNotFoundException when ID does not exist")
+    void testUpdateEmployee_NotFound() {
+        EmployeeDTO updateInfo = new EmployeeDTO();
+        updateInfo.setName("Nobody");
+        updateInfo.setEmail("nobody@example.com");
+        updateInfo.setDepartment("None");
+
+        when(employeeRepository.findById(999L)).thenReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () ->
+                employeeService.updateEmployee(999L, updateInfo)
+        );
+
+        assertTrue(exception.getMessage().contains("Employee not found with id: 999"));
+        verify(employeeRepository, times(1)).findById(999L);
+        verify(employeeRepository, never()).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("Delete employee successfully when ID exists")
+    void testDeleteEmployee_Success() {
+        when(employeeRepository.existsById(1L)).thenReturn(true);
+        doNothing().when(employeeRepository).deleteById(1L);
+
+        assertDoesNotThrow(() -> employeeService.deleteEmployee(1L));
+
+        verify(employeeRepository, times(1)).existsById(1L);
+        verify(employeeRepository, times(1)).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("Delete employee throws ResourceNotFoundException when ID does not exist")
+    void testDeleteEmployee_NotFound() {
+        when(employeeRepository.existsById(999L)).thenReturn(false);
+
+        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () ->
+                employeeService.deleteEmployee(999L)
+        );
+
+        assertTrue(exception.getMessage().contains("Employee not found with id: 999"));
+        verify(employeeRepository, times(1)).existsById(999L);
+        verify(employeeRepository, never()).deleteById(anyLong());
+    }
+}
+</file>
+
+<file path="src/test/java/com/sha/employee_management/service/UserServiceImplTest.java">
+package com.sha.employee_management.service;
+
+import com.sha.employee_management.auth.AuthResponse;
+import com.sha.employee_management.auth.RegisterRequest;
+import com.sha.employee_management.dto.ChangePasswordRequest;
+import com.sha.employee_management.dto.CreateUserRequest;
+import com.sha.employee_management.dto.UserResponse;
+import com.sha.employee_management.entity.Role;
+import com.sha.employee_management.entity.User;
+import com.sha.employee_management.exception.UserAlreadyExistsException;
+import com.sha.employee_management.repository.UserRepository;
+import com.sha.employee_management.service.impl.UserServiceImpl;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class UserServiceImplTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @InjectMocks
+    private UserServiceImpl userService;
+
+    private User sampleUser;
+
+    @BeforeEach
+    void setUp() {
+        sampleUser = new User();
+        sampleUser.setId(1L);
+        sampleUser.setUsername("testuser");
+        sampleUser.setPassword("encodedOldPassword");
+        sampleUser.setRole(Role.USER);
+    }
+
+    @Test
+    @DisplayName("Register user successfully defaults to USER role")
+    void testRegister_Success() {
+        RegisterRequest request = new RegisterRequest("newuser", "plainPassword123");
+
+        when(userRepository.findByUsername("newuser")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("plainPassword123")).thenReturn("encodedPassword123");
+
+        User savedUser = new User();
+        savedUser.setId(2L);
+        savedUser.setUsername("newuser");
+        savedUser.setPassword("encodedPassword123");
+        savedUser.setRole(Role.USER);
+
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+
+        AuthResponse response = userService.register(request);
+
+        assertNotNull(response);
+        assertEquals("newuser", response.getUsername());
+        assertEquals("USER", response.getRole());
+        assertEquals("User registered successfully", response.getMessage());
+
+        verify(userRepository, times(1)).findByUsername("newuser");
+        verify(passwordEncoder, times(1)).encode("plainPassword123");
+        verify(userRepository, times(1)).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Register throws UserAlreadyExistsException when username already taken")
+    void testRegister_DuplicateUsername_ThrowsConflict() {
+        RegisterRequest request = new RegisterRequest("testuser", "password123");
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+
+        UserAlreadyExistsException exception = assertThrows(UserAlreadyExistsException.class, () ->
+                userService.register(request)
+        );
+
+        assertTrue(exception.getMessage().contains("already taken"));
+        verify(userRepository, times(1)).findByUsername("testuser");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Change password succeeds when current password is valid")
+    void testChangePassword_Success() {
+        ChangePasswordRequest request = new ChangePasswordRequest("correctPassword", "newSecurePassword");
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+        when(passwordEncoder.matches("correctPassword", "encodedOldPassword")).thenReturn(true);
+        when(passwordEncoder.encode("newSecurePassword")).thenReturn("encodedNewPassword");
+        when(userRepository.save(any(User.class))).thenReturn(sampleUser);
+
+        assertDoesNotThrow(() -> userService.changePassword("testuser", request));
+
+        assertEquals("encodedNewPassword", sampleUser.getPassword());
+        verify(userRepository, times(1)).findByUsername("testuser");
+        verify(passwordEncoder, times(1)).matches("correctPassword", "encodedOldPassword");
+        verify(passwordEncoder, times(1)).encode("newSecurePassword");
+        verify(userRepository, times(1)).save(sampleUser);
+    }
+
+    @Test
+    @DisplayName("Change password throws IllegalArgumentException when current password is wrong")
+    void testChangePassword_WrongCurrentPassword_ThrowsBadRequest() {
+        ChangePasswordRequest request = new ChangePasswordRequest("wrongPassword", "newSecurePassword");
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+        when(passwordEncoder.matches("wrongPassword", "encodedOldPassword")).thenReturn(false);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                userService.changePassword("testuser", request)
+        );
+
+        assertEquals("Current password is incorrect", exception.getMessage());
+        verify(userRepository, times(1)).findByUsername("testuser");
+        verify(passwordEncoder, times(1)).matches("wrongPassword", "encodedOldPassword");
+        verify(passwordEncoder, never()).encode(anyString());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Create user by Admin with specified Role succeeds")
+    void testCreateUser_Admin_Success() {
+        CreateUserRequest request = new CreateUserRequest("adminUser", "adminSecret", Role.ADMIN);
+
+        when(userRepository.findByUsername("adminUser")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("adminSecret")).thenReturn("encodedAdminSecret");
+
+        User savedAdmin = new User();
+        savedAdmin.setId(3L);
+        savedAdmin.setUsername("adminUser");
+        savedAdmin.setPassword("encodedAdminSecret");
+        savedAdmin.setRole(Role.ADMIN);
+
+        when(userRepository.save(any(User.class))).thenReturn(savedAdmin);
+
+        UserResponse response = userService.createUser(request);
+
+        assertNotNull(response);
+        assertEquals(3L, response.getId());
+        assertEquals("adminUser", response.getUsername());
+        assertEquals(Role.ADMIN, response.getRole());
+
+        verify(userRepository, times(1)).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Create user by Admin throws UserAlreadyExistsException on duplicate")
+    void testCreateUser_Duplicate_ThrowsConflict() {
+        CreateUserRequest request = new CreateUserRequest("testuser", "secretPass", Role.ADMIN);
+
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+
+        UserAlreadyExistsException exception = assertThrows(UserAlreadyExistsException.class, () ->
+                userService.createUser(request)
+        );
+
+        assertTrue(exception.getMessage().contains("already exists"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("Get all users returns list of UserResponse")
+    void testGetAllUsers() {
+        User user2 = new User();
+        user2.setId(2L);
+        user2.setUsername("admin");
+        user2.setRole(Role.ADMIN);
+
+        when(userRepository.findAll()).thenReturn(List.of(sampleUser, user2));
+
+        List<UserResponse> list = userService.getAllUsers();
+
+        assertNotNull(list);
+        assertEquals(2, list.size());
+        assertEquals("testuser", list.get(0).getUsername());
+        assertEquals(Role.USER, list.get(0).getRole());
+        assertEquals("admin", list.get(1).getUsername());
+        assertEquals(Role.ADMIN, list.get(1).getRole());
+    }
+
+    @Test
+    @DisplayName("Get user profile returns UserResponse")
+    void testGetUserProfile() {
+        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(sampleUser));
+
+        UserResponse response = userService.getUserProfile("testuser");
+
+        assertNotNull(response);
+        assertEquals(1L, response.getId());
+        assertEquals("testuser", response.getUsername());
+        assertEquals(Role.USER, response.getRole());
+    }
+}
+</file>
+
+<file path=".dockerignore">
+target/
+.git/
+.gitignore
+.env
+*.log
+.mvn/
+mvnw
+mvnw.cmd
+backend-code.txt
+</file>
+
+<file path="docker-compose.yml">
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: employee-management-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-Root@123}
+      MYSQL_DATABASE: ${DB_NAME:-employee_db}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: employee-management-backend
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${DB_NAME:-employee_db}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-Root@123}
+      JWT_SECRET: ${JWT_SECRET:-1CodeWithPurpose2BuildWithPassion3NeverStopLearning4}
+      DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-Admin@123}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  frontend:
+    image: nginx:alpine
+    container_name: employee-management-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
+</file>
+
+<file path="Dockerfile">
+# Stage 1: Build the application using Maven and Java 17
+FROM maven:3.9.6-eclipse-temurin-17 AS builder
+WORKDIR /app
+
+# Cache Maven dependencies layer
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+
+# Copy project source and package executable jar
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# Stage 2: Create lightweight JRE runtime
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+
+# Run as non-root user for security best practice
+RUN addgroup -S spring && adduser -S spring -G spring
+USER spring:spring
+
+# Copy compiled jar from build stage
+COPY --from=builder /app/target/*.jar app.jar
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
+</file>
+
+<file path="README.md">
+# 🏢 Employee Management System - Spring Boot Backend
+
+![Java](https://img.shields.io/badge/Java-17-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.3.5-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)
+![Spring Security](https://img.shields.io/badge/Spring_Security-6.x-6DB33F?style=for-the-badge&logo=springsecurity&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT-JJWT_0.12.5-black?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.4-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+![Swagger](https://img.shields.io/badge/OpenAPI-Swagger_UI-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+
+A production-grade, enterprise-ready RESTful backend built with **Spring Boot 3.3.5**, **Spring Data JPA**, and **Spring Security 6**. The application implements robust Role-Based Access Control (RBAC) via stateless JWT tokens, input validation, structured error handling, automated database initialization, and full containerization with multi-stage Docker builds.
+
+---
+
+## 🌟 Key Features
+
+- **🔐 JWT Authentication & Stateless Architecture:**
+  - Secure login with BCrypt password hashing (`PasswordEncoder.matches()`).
+  - Access tokens generated via JJWT 0.12.5 using cryptographic keys (`Keys.hmacShaKeyFor`) and role claims.
+  - Fully stateless security session policy (`SessionCreationPolicy.STATELESS`).
+- **🛡️ Role-Based Access Control (RBAC):**
+  - Granular authorities (`ROLE_ADMIN`, `ROLE_USER`) populated in `SecurityContextHolder`.
+  - Sensitive operations (creating, updating, deleting employees and managing users) restricted strictly to `ADMIN`.
+  - Profile retrieval and employee queries accessible to authenticated users.
+- **👤 User Management & Profile:**
+  - Self-service endpoints for authenticated users to view profile details and change passwords.
+  - Admin endpoints to provision users with custom roles and inspect all user records.
+  - Automatic database seeding of a default `ADMIN` account on application startup (`DataInitializer`).
+- **📄 Pagination & Sorting:**
+  - Employee list endpoint supporting Spring Data `Pageable` for high-performance pagination and sorting.
+- **✅ Jakarta Validation:**
+  - Strict input validation using `spring-boot-starter-validation` (`@NotBlank`, `@Email`, `@Size`, `@NotNull`).
+- **⚠️ Structured Global Exception Handling:**
+  - Centralized `@RestControllerAdvice` mapping exceptions to standard RFC-compliant JSON responses (`400`, `401`, `403`, `404`, `409`, `500`).
+- **🐳 Multi-Stage Docker & Compose Orchestration:**
+  - Multi-stage Dockerfile compiling with Maven on Java 17 and running inside a lightweight JRE Alpine image with a non-root user.
+  - Complete `docker-compose.yml` orchestrating MySQL 8.4, backend API, and frontend reverse proxy with automated health checks.
+
+---
+
+## 🛠️ Tech Stack
+
+| Technology | Purpose |
+| :--- | :--- |
+| **Java 17 (LTS)** | Core programming language |
+| **Spring Boot 3.3.5** | Core application framework |
+| **Spring Security 6** | Authentication, authorization, and endpoint filtering |
+| **JJWT (io.jsonwebtoken 0.12.5)** | HMAC-SHA signed JSON Web Tokens |
+| **Spring Data JPA & Hibernate** | Object-Relational Mapping (ORM) and persistence |
+| **MySQL 8.4** | Relational Database Management System |
+| **Spring Boot Validation** | Bean Validation (Hibernate Validator) |
+| **Springdoc OpenAPI (Swagger UI)** | Interactive API documentation |
+| **JUnit 5 & Mockito** | Comprehensive unit & integration testing suite |
+| **Docker & Docker Compose** | Containerization and multi-container orchestration |
+
+---
+
+## 📋 API Endpoints
+
+### 🔑 Authentication (`/auth`)
+| Method | Endpoint | Access Role | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/auth/register` | Public | Register a new user account (safely defaults to `USER` role) |
+| `POST` | `/auth/login` | Public | Authenticate user credentials and receive a signed JWT token |
+
+### 👤 User Management & Profile (`/users`)
+| Method | Endpoint | Access Role | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/users/me` | Authenticated (`USER`, `ADMIN`) | Fetch profile details of currently logged-in user |
+| `PUT` | `/users/change-password` | Authenticated (`USER`, `ADMIN`) | Verify current password and update to new password |
+| `GET` | `/users` | `ADMIN` only | Retrieve a list of all registered users |
+| `POST` | `/users` | `ADMIN` only | Provision a new user with an assigned role (`ADMIN`/`USER`) |
+
+### 👔 Employee Management (`/employees`)
+| Method | Endpoint | Access Role | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/employees` | Authenticated (`USER`, `ADMIN`) | Fetch all employees |
+| `GET` | `/employees/page` | Authenticated (`USER`, `ADMIN`) | Fetch paginated list of employees (`page`, `size`, `sort`) |
+| `POST` | `/employees` | `ADMIN` only | Create a new employee record |
+| `PUT` | `/employees/{id}` | `ADMIN` only | Update an existing employee record |
+| `DELETE` | `/employees/{id}` | `ADMIN` only | Delete an employee record |
+
+### 📖 API Documentation & Swagger
+| Method | Endpoint | Access Role | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/swagger-ui/index.html` | Public | Interactive Swagger UI API exploration |
+| `GET` | `/v3/api-docs` | Public | OpenAPI 3.0 JSON specification |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **JDK 17** or higher installed
+- **MySQL 8.0+** running locally (or via Docker)
+- **Git**
+
+---
+
+### Option 1: Local Development
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/employee-management-springboot.git
+   cd employee-management-springboot
+   ```
+
+2. **Configure environment variables:**
+   Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+   Update the database credentials in `.env` or set environment variables if needed. Safe local defaults are configured out-of-the-box:
+   ```properties
+   DB_URL=jdbc:mysql://localhost:3306/employee_db
+   DB_USERNAME=root
+   DB_PASSWORD=Root@123
+   JWT_SECRET=1CodeWithPurpose2BuildWithPassion3NeverStopLearning4
+   DEFAULT_ADMIN_USERNAME=admin
+   DEFAULT_ADMIN_PASSWORD=Admin@123
+   ```
+
+3. **Build and execute unit tests:**
+   ```bash
+   # Windows
+   .\mvnw.cmd clean test
+
+   # Linux / macOS
+   ./mvnw clean test
+   ```
+
+4. **Run the Spring Boot application:**
+   ```bash
+   # Windows
+   .\mvnw.cmd spring-boot:run
+
+   # Linux / macOS
+   ./mvnw spring-boot:run
+   ```
+
+   The application will boot at `http://localhost:8080`.
+   Explore the Swagger documentation at: `http://localhost:8080/swagger-ui/index.html`.
+
+---
+
+### Option 2: Docker & Docker Compose
+
+Launch the entire stack (MySQL 8.4 database, Spring Boot backend, and frontend) with a single command:
+
+1. **Start all services:**
+   ```bash
+   docker compose up --build -d
+   ```
+
+2. **Check status of running containers:**
+   ```bash
+   docker compose ps
+   ```
+
+3. **Inspect application logs:**
+   ```bash
+   docker compose logs -f backend
+   ```
+
+4. **Stop the environment:**
+   ```bash
+   docker compose down
+   ```
+   *(To wipe persisted database volumes, add `-v`: `docker compose down -v`)*
+
+---
+
+## 🧪 Testing
+
+The test suite contains clean, isolated unit tests written with **JUnit 5** and **Mockito** (no live database required for unit tests):
+
+- **Service Layer Unit Tests:**
+  - `EmployeeServiceImplTest`: Tests creation, retrieval, pagination (`Pageable`), update, deletion, and `ResourceNotFoundException`.
+  - `UserServiceImplTest`: Tests registration (default `USER` role), duplicate username conflict (`409`), password modification, and invalid current password validation.
+- **Controller Unit Tests:**
+  - `AuthControllerTest`: Tests registration DTO flow and password verification (401 on bad credentials).
+  - `UserControllerTest`: Tests `/users/me`, `/users/change-password`, `/users` admin controls.
+  - `EmployeeValidationAndExceptionTest`: Tests bean validation (`@NotBlank`, `@Email`) and structured JSON error responses.
+- **Security & Data Initialization Tests:**
+  - `JwtServiceTest`: Tests JJWT 0.12.5 token generation, signing key verification, and role claim resolution.
+  - `DataInitializerTest`: Verifies default admin provisioning.
+
+Run all tests:
+```bash
+.\mvnw.cmd test
+```
+
+---
+
+## 📄 License
+This project is open-source and available under the [MIT License](LICENSE).
+</file>
 
 <file path=".mvn/wrapper/maven-wrapper.properties">
 wrapperVersion=3.3.4
@@ -104,55 +826,91 @@ distributionType=only-script
 distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.12/apache-maven-3.9.12-bin.zip
 </file>
 
-<file path="src/main/java/com/sha/employee_management/auth/AuthController.java">
+<file path="src/main/java/com/sha/employee_management/auth/AuthResponse.java">
 package com.sha.employee_management.auth;
 
-import com.sha.employee_management.entity.User;
-import com.sha.employee_management.security.JwtService;
-import com.sha.employee_management.service.UserService;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
-@RestController
-@RequestMapping("/auth")
-public class AuthController {
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class AuthResponse {
 
-    private final JwtService jwtService;
-    private final UserService userService;
+    private String token;
+    private String username;
+    private String role;
+    private String message;
 
-    public AuthController(JwtService jwtService,
-                          UserService userService) {
-        this.jwtService = jwtService;
-        this.userService = userService;
+    public AuthResponse() {}
+
+    public AuthResponse(String token) {
+        this.token = token;
     }
 
-    @PostMapping("/register")
-    public User register(@RequestBody User user) {
-
-        return userService.register(user);
+    public AuthResponse(String token, String username, String role, String message) {
+        this.token = token;
+        this.username = username;
+        this.role = role;
+        this.message = message;
     }
 
-    @PostMapping("/login")
-    public String login(@RequestBody LoginRequest request){
+    public AuthResponse(String username, String role, String message) {
+        this.username = username;
+        this.role = role;
+        this.message = message;
+    }
 
-        User user = userService.findByUsername(request.getUsername());
+    public String getToken() {
+        return token;
+    }
 
-        return jwtService.generateToken(user.getUsername());
+    public void setToken(String token) {
+        this.token = token;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
     }
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/auth/LoginRequest.java">
+<file path="src/main/java/com/sha/employee_management/auth/RegisterRequest.java">
 package com.sha.employee_management.auth;
 
-public class LoginRequest {
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
+public class RegisterRequest {
+
+    @NotBlank(message = "Username cannot be blank")
+    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
     private String username;
+
+    @NotBlank(message = "Password cannot be blank")
+    @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
 
-    public LoginRequest(String username,String password) {
+    public RegisterRequest() {}
+
+    public RegisterRequest(String username, String password) {
         this.username = username;
         this.password = password;
     }
@@ -206,6 +964,54 @@ public class CorsConfig {
 }
 </file>
 
+<file path="src/main/java/com/sha/employee_management/config/DataInitializer.java">
+package com.sha.employee_management.config;
+
+import com.sha.employee_management.entity.Role;
+import com.sha.employee_management.entity.User;
+import com.sha.employee_management.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DataInitializer implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    @Value("${app.default-admin.username:admin}")
+    private String adminUsername;
+
+    @Value("${app.default-admin.password:Admin@123}")
+    private String adminPassword;
+
+    public DataInitializer(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Override
+    public void run(String... args) {
+        if (userRepository.findByUsername(adminUsername).isEmpty()) {
+            User admin = new User();
+            admin.setUsername(adminUsername);
+            admin.setPassword(passwordEncoder.encode(adminPassword));
+            admin.setRole(Role.ADMIN);
+            userRepository.save(admin);
+            log.info("Initialized default ADMIN user: {}", adminUsername);
+        } else {
+            log.info("Admin user '{}' already exists. Skipping initialization.", adminUsername);
+        }
+    }
+}
+</file>
+
 <file path="src/main/java/com/sha/employee_management/config/OpenApiConfig.java">
 package com.sha.employee_management.config;
 
@@ -237,64 +1043,262 @@ public class OpenApiConfig {
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/config/SecurityConfig.java">
-package com.sha.employee_management.config;
+<file path="src/main/java/com/sha/employee_management/controller/UserController.java">
+package com.sha.employee_management.controller;
 
-import com.sha.employee_management.security.JwtAuthenticationFilter;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import com.sha.employee_management.dto.ChangePasswordRequest;
+import com.sha.employee_management.dto.CreateUserRequest;
+import com.sha.employee_management.dto.UserResponse;
+import com.sha.employee_management.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
 
-@Configuration
-public class SecurityConfig {
+import java.util.List;
+import java.util.Map;
 
-    private final JwtAuthenticationFilter jwtFilter;
+@RestController
+@RequestMapping("/users")
+public class UserController {
 
-    public SecurityConfig(JwtAuthenticationFilter jwtFilter) {
-        this.jwtFilter = jwtFilter;
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
     }
 
-    @Bean
-    public PasswordEncoder passwordEncoder(){
-        return new BCryptPasswordEncoder();
+    @GetMapping("/me")
+    public ResponseEntity<UserResponse> getCurrentUser() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        return ResponseEntity.ok(userService.getUserProfile(username));
     }
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    @PutMapping("/change-password")
+    public ResponseEntity<Map<String, String>> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        userService.changePassword(username, request);
+        return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
+    }
 
-        http
-                .cors(cors -> {})
-                .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/auth/**",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**"
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                .addFilterBefore(jwtFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+    @GetMapping
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
+        return ResponseEntity.ok(userService.getAllUsers());
+    }
 
-        return http.build();
+    @PostMapping
+    public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
+        UserResponse response = userService.createUser(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/dto/EmployeeDTO.java">
+<file path="src/main/java/com/sha/employee_management/dto/ChangePasswordRequest.java">
 package com.sha.employee_management.dto;
 
-public class EmployeeDTO {
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+public class ChangePasswordRequest {
+
+    @NotBlank(message = "Current password cannot be blank")
+    private String currentPassword;
+
+    @NotBlank(message = "New password cannot be blank")
+    @Size(min = 6, message = "New password must be at least 6 characters")
+    private String newPassword;
+
+    public ChangePasswordRequest() {}
+
+    public ChangePasswordRequest(String currentPassword, String newPassword) {
+        this.currentPassword = currentPassword;
+        this.newPassword = newPassword;
+    }
+
+    public String getCurrentPassword() {
+        return currentPassword;
+    }
+
+    public void setCurrentPassword(String currentPassword) {
+        this.currentPassword = currentPassword;
+    }
+
+    public String getNewPassword() {
+        return newPassword;
+    }
+
+    public void setNewPassword(String newPassword) {
+        this.newPassword = newPassword;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/dto/CreateUserRequest.java">
+package com.sha.employee_management.dto;
+
+import com.sha.employee_management.entity.Role;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+public class CreateUserRequest {
+
+    @NotBlank(message = "Username cannot be blank")
+    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+    private String username;
+
+    @NotBlank(message = "Password cannot be blank")
+    @Size(min = 6, message = "Password must be at least 6 characters")
+    private String password;
+
+    @NotNull(message = "Role is required")
+    private Role role;
+
+    public CreateUserRequest() {}
+
+    public CreateUserRequest(String username, String password, Role role) {
+        this.username = username;
+        this.password = password;
+        this.role = role;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/dto/ErrorResponse.java">
+package com.sha.employee_management.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ErrorResponse {
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime timestamp;
+    private int status;
+    private String error;
+    private String message;
+    private String path;
+    private Map<String, String> errors;
+
+    public ErrorResponse() {
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String path) {
+        this.timestamp = timestamp;
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.path = path;
+    }
+
+    public ErrorResponse(LocalDateTime timestamp, int status, String error, String message, String path, Map<String, String> errors) {
+        this.timestamp = timestamp;
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.path = path;
+        this.errors = errors;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public int getStatus() {
+        return status;
+    }
+
+    public void setStatus(int status) {
+        this.status = status;
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public void setError(String error) {
+        this.error = error;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public String getPath() {
+        return path;
+    }
+
+    public void setPath(String path) {
+        this.path = path;
+    }
+
+    public Map<String, String> getErrors() {
+        return errors;
+    }
+
+    public void setErrors(Map<String, String> errors) {
+        this.errors = errors;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/dto/UserResponse.java">
+package com.sha.employee_management.dto;
+
+import com.sha.employee_management.entity.Role;
+
+public class UserResponse {
 
     private Long id;
-    private String name;
-    private String email;
-    private String department;
+    private String username;
+    private Role role;
 
+    public UserResponse() {}
+
+    public UserResponse(Long id, String username, Role role) {
+        this.id = id;
+        this.username = username;
+        this.role = role;
+    }
 
     public Long getId() {
         return id;
@@ -304,28 +1308,20 @@ public class EmployeeDTO {
         this.id = id;
     }
 
-    public String getName() {
-        return name;
+    public String getUsername() {
+        return username;
     }
 
-    public String getEmail() {
-        return email;
+    public void setUsername(String username) {
+        this.username = username;
     }
 
-    public String getDepartment() {
-        return department;
+    public Role getRole() {
+        return role;
     }
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public void setDepartment(String department) {
-        this.department = department;
+    public void setRole(Role role) {
+        this.role = role;
     }
 }
 </file>
@@ -446,18 +1442,24 @@ public class User {
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/exception/GlobalExceptionHandler.java">
+<file path="src/main/java/com/sha/employee_management/exception/ResourceNotFoundException.java">
 package com.sha.employee_management.exception;
 
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
+public class ResourceNotFoundException extends RuntimeException {
 
-@RestControllerAdvice
-public class GlobalExceptionHandler {
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
+}
+</file>
 
-    @ExceptionHandler(Exception.class)
-    public String handleException(Exception e) {
-        return e.getMessage();
+<file path="src/main/java/com/sha/employee_management/exception/UserAlreadyExistsException.java">
+package com.sha.employee_management.exception;
+
+public class UserAlreadyExistsException extends RuntimeException {
+
+    public UserAlreadyExistsException(String message) {
+        super(message);
     }
 }
 </file>
@@ -523,243 +1525,205 @@ public class CustomUserDetailsService implements UserDetailsService {
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/security/JwtAuthenticationFilter.java">
-package com.sha.employee_management.security;
+<file path="src/test/java/com/sha/employee_management/AuthControllerTest.java">
+package com.sha.employee_management;
 
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.NonNull;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sha.employee_management.auth.AuthController;
+import com.sha.employee_management.auth.AuthResponse;
+import com.sha.employee_management.auth.LoginRequest;
+import com.sha.employee_management.auth.RegisterRequest;
+import com.sha.employee_management.entity.Role;
+import com.sha.employee_management.entity.User;
+import com.sha.employee_management.exception.GlobalExceptionHandler;
+import com.sha.employee_management.security.JwtService;
+import com.sha.employee_management.service.UserService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@Component
-public class JwtAuthenticationFilter extends OncePerRequestFilter {
+@ExtendWith(MockitoExtension.class)
+class AuthControllerTest {
 
-    private final JwtService jwtService;
+    private MockMvc mockMvc;
 
-    public JwtAuthenticationFilter(JwtService jwtService){
-        this.jwtService = jwtService;
+    @Mock
+    private JwtService jwtService;
+
+    @Mock
+    private UserService userService;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @InjectMocks
+    private AuthController authController;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(authController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
-    @Override
-    protected void doFilterInternal(HttpServletRequest request,
-                                    HttpServletResponse response,
-                                    FilterChain filterChain)
-            throws ServletException, IOException {
+    @Test
+    void testRegisterSuccess_ReturnsAuthResponseWithoutPassword() throws Exception {
+        RegisterRequest registerRequest = new RegisterRequest("newUser", "password123");
+        AuthResponse authResponse = new AuthResponse("newUser", "USER", "User registered successfully");
 
-        String header = request.getHeader("Authorization");
+        when(userService.register(any(RegisterRequest.class))).thenReturn(authResponse);
 
-        if(header != null && header.startsWith("Bearer ")){
-
-            String token = header.substring(7);
-
-            String username = jwtService.extractUsername(token);
-
-            if(username != null){
-
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(
-                                username,
-                                null,
-                                new ArrayList<>()
-                        );
-
-                SecurityContextHolder.getContext()
-                        .setAuthentication(authentication);
-            }
-        }
-
-        filterChain.doFilter(request,response);
-    }
-}
-</file>
-
-<file path="src/main/java/com/sha/employee_management/security/JwtService.java">
-package com.sha.employee_management.security;
-
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
-import java.util.Date;
-
-@Service
-public class JwtService {
-
-    @Value("${jwt.secret}")
-    private String SECRET_KEY;
-
-    public String generateToken(String username){
-
-        return Jwts.builder()
-                .subject(username)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis()+1000*60*60))
-                .signWith(SignatureAlgorithm.HS256, SECRET_KEY)
-                .compact();
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value("newUser"))
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andExpect(jsonPath("$.message").value("User registered successfully"))
+                .andExpect(jsonPath("$.password").doesNotExist());
     }
 
-    public String extractUsername(String token){
+    @Test
+    void testLoginSuccess_ValidPassword() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("testUser", "validPassword");
+        User user = new User();
+        user.setUsername("testUser");
+        user.setPassword("encodedPassword");
+        user.setRole(Role.USER);
 
-        return Jwts.parser()
-                .setSigningKey(SECRET_KEY)
-                .build()
-                .parseClaimsJws(token)
-                .getBody()
-                .getSubject();
+        when(userService.findByUsername("testUser")).thenReturn(user);
+        when(passwordEncoder.matches("validPassword", "encodedPassword")).thenReturn(true);
+        when(jwtService.generateToken("testUser", "USER")).thenReturn("mock-jwt-token");
+
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("mock-jwt-token"))
+                .andExpect(jsonPath("$.username").value("testUser"))
+                .andExpect(jsonPath("$.role").value("USER"));
     }
 
-}
-</file>
+    @Test
+    void testLoginFailure_InvalidPassword_Returns401() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("testUser", "wrongPassword");
+        User user = new User();
+        user.setUsername("testUser");
+        user.setPassword("encodedPassword");
+        user.setRole(Role.USER);
 
-<file path="src/main/java/com/sha/employee_management/service/impl/EmployeeServiceImpl.java">
-package com.sha.employee_management.service.impl;
+        when(userService.findByUsername("testUser")).thenReturn(user);
+        when(passwordEncoder.matches("wrongPassword", "encodedPassword")).thenReturn(false);
 
-import com.sha.employee_management.dto.EmployeeDTO;
-import com.sha.employee_management.entity.Employee;
-import com.sha.employee_management.repository.EmployeeRepository;
-import com.sha.employee_management.service.EmployeeService;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-
-import java.util.List;
-import java.util.stream.Collectors;
-
-@Service
-public class EmployeeServiceImpl implements EmployeeService {
-
-    private final EmployeeRepository repository;
-
-    public EmployeeServiceImpl(EmployeeRepository repository) {
-        this.repository = repository;
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"))
+                .andExpect(jsonPath("$.message").value("Invalid username or password"));
     }
 
-    @Override
-    public EmployeeDTO saveEmployee(EmployeeDTO dto) {
+    @Test
+    void testLoginFailure_UserNotFound_Returns401() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("unknownUser", "anyPassword");
 
-        Employee employee = new Employee();
+        when(userService.findByUsername("unknownUser")).thenThrow(new BadCredentialsException("Invalid username or password"));
 
-        employee.setName(dto.getName());
-        employee.setEmail(dto.getEmail());
-        employee.setDepartment(dto.getDepartment());
-
-        Employee saved = repository.save(employee);
-
-        return mapToDTO(saved);
-    }
-
-    @Override
-    public List<EmployeeDTO> getAllEmployees() {
-
-        return repository.findAll()
-                .stream()
-                .map(this::mapToDTO)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public Page<EmployeeDTO> getEmployees(Pageable pageable) {
-
-        return repository.findAll(pageable)
-                .map(this::mapToDTO);
-    }
-
-    @Override
-    public EmployeeDTO updateEmployee(Long id, EmployeeDTO dto) {
-
-        Employee employee = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Employee not found"));
-
-        employee.setName(dto.getName());
-        employee.setEmail(dto.getEmail());
-        employee.setDepartment(dto.getDepartment());
-
-        Employee updated = repository.save(employee);
-
-        return mapToDTO(updated);
-    }
-
-    @Override
-    public void deleteEmployee(Long id) {
-
-        repository.deleteById(id);
-    }
-
-    private EmployeeDTO mapToDTO(Employee employee){
-
-        EmployeeDTO dto = new EmployeeDTO();
-
-        dto.setId(employee.getId());   // IMPORTANT
-        dto.setName(employee.getName());
-        dto.setEmail(employee.getEmail());
-        dto.setDepartment(employee.getDepartment());
-
-        return dto;
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Unauthorized"));
     }
 }
 </file>
 
-<file path="src/main/java/com/sha/employee_management/service/impl/UserServiceImpl.java">
-package com.sha.employee_management.service.impl;
+<file path="src/test/java/com/sha/employee_management/DataInitializerTest.java">
+package com.sha.employee_management;
 
+import com.sha.employee_management.config.DataInitializer;
+import com.sha.employee_management.entity.Role;
 import com.sha.employee_management.entity.User;
 import com.sha.employee_management.repository.UserRepository;
-import com.sha.employee_management.service.UserService;
-
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
+import org.springframework.test.util.ReflectionTestUtils;
 
-@Service
-public class UserServiceImpl implements UserService {
+import java.util.Optional;
 
-    private final UserRepository repository;
-    private final PasswordEncoder passwordEncoder;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-    public UserServiceImpl(UserRepository repository,
-                           PasswordEncoder passwordEncoder) {
-        this.repository = repository;
-        this.passwordEncoder = passwordEncoder;
+@ExtendWith(MockitoExtension.class)
+class DataInitializerTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @InjectMocks
+    private DataInitializer dataInitializer;
+
+    @BeforeEach
+    void setUp() {
+        ReflectionTestUtils.setField(dataInitializer, "adminUsername", "admin");
+        ReflectionTestUtils.setField(dataInitializer, "adminPassword", "Admin@123");
     }
 
-    @Override
-    public User register(User user) {
+    @Test
+    void testInitAdmin_WhenAdminDoesNotExist() {
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("Admin@123")).thenReturn("encodedAdminPassword");
 
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        dataInitializer.run();
 
-        return repository.save(user);
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userRepository, times(1)).save(captor.capture());
+
+        User saved = captor.getValue();
+        assertEquals("admin", saved.getUsername());
+        assertEquals("encodedAdminPassword", saved.getPassword());
+        assertEquals(Role.ADMIN, saved.getRole());
     }
 
-    @Override
-    public User findByUsername(String username) {
+    @Test
+    void testInitAdmin_WhenAdminAlreadyExists_Skips() {
+        User existingAdmin = new User();
+        existingAdmin.setUsername("admin");
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(existingAdmin));
 
-        return repository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        dataInitializer.run();
+
+        verify(userRepository, never()).save(any(User.class));
     }
-}
-</file>
-
-<file path="src/main/java/com/sha/employee_management/service/UserService.java">
-package com.sha.employee_management.service;
-
-import com.sha.employee_management.entity.User;
-
-public interface UserService {
-
-    User register(User user);
-
-    User findByUsername(String username);
-
 }
 </file>
 
@@ -779,45 +1743,328 @@ class EmployeeManagementApplicationTests {
 }
 </file>
 
+<file path="src/test/java/com/sha/employee_management/EmployeeValidationAndExceptionTest.java">
+package com.sha.employee_management;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sha.employee_management.controller.EmployeeController;
+import com.sha.employee_management.dto.EmployeeDTO;
+import com.sha.employee_management.exception.GlobalExceptionHandler;
+import com.sha.employee_management.exception.ResourceNotFoundException;
+import com.sha.employee_management.service.EmployeeService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@ExtendWith(MockitoExtension.class)
+class EmployeeValidationAndExceptionTest {
+
+    private MockMvc mockMvc;
+
+    @Mock
+    private EmployeeService employeeService;
+
+    @InjectMocks
+    private EmployeeController employeeController;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(employeeController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
+
+    @Test
+    void testCreateEmployee_ValidationFailure_BlankFields() throws Exception {
+        EmployeeDTO invalidDTO = new EmployeeDTO();
+        invalidDTO.setName("");
+        invalidDTO.setEmail("invalid-email");
+        invalidDTO.setDepartment("");
+
+        mockMvc.perform(post("/employees")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalidDTO)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.errors.name").exists())
+                .andExpect(jsonPath("$.errors.email").exists())
+                .andExpect(jsonPath("$.errors.department").exists());
+    }
+
+    @Test
+    void testCreateEmployee_Success() throws Exception {
+        EmployeeDTO validDTO = new EmployeeDTO(null, "Alice Smith", "alice@example.com", "Engineering");
+        EmployeeDTO createdDTO = new EmployeeDTO(1L, "Alice Smith", "alice@example.com", "Engineering");
+
+        when(employeeService.saveEmployee(any(EmployeeDTO.class))).thenReturn(createdDTO);
+
+        mockMvc.perform(post("/employees")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validDTO)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.name").value("Alice Smith"))
+                .andExpect(jsonPath("$.email").value("alice@example.com"));
+    }
+
+    @Test
+    void testUpdateEmployee_NotFound_Returns404() throws Exception {
+        EmployeeDTO updateDTO = new EmployeeDTO(null, "Bob", "bob@example.com", "Sales");
+
+        when(employeeService.updateEmployee(eq(999L), any(EmployeeDTO.class)))
+                .thenThrow(new ResourceNotFoundException("Employee not found with id: 999"));
+
+        mockMvc.perform(put("/employees/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateDTO)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Employee not found with id: 999"));
+    }
+}
+</file>
+
+<file path="src/test/java/com/sha/employee_management/JwtServiceTest.java">
+package com.sha.employee_management;
+
+import com.sha.employee_management.security.JwtService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class JwtServiceTest {
+
+    private JwtService jwtService;
+    private final String testSecret = "1CodeWithPurpose2BuildWithPassion3NeverStopLearning4";
+
+    @BeforeEach
+    void setUp() {
+        jwtService = new JwtService();
+        ReflectionTestUtils.setField(jwtService, "secretKey", testSecret);
+    }
+
+    @Test
+    void testGenerateAndExtractClaims() {
+        String token = jwtService.generateToken("john_doe", "ADMIN");
+        assertNotNull(token);
+
+        String username = jwtService.extractUsername(token);
+        assertEquals("john_doe", username);
+
+        String role = jwtService.extractRole(token);
+        assertEquals("ADMIN", role);
+
+        assertTrue(jwtService.isTokenValid(token, "john_doe"));
+        assertFalse(jwtService.isTokenValid(token, "different_user"));
+    }
+
+    @Test
+    void testDefaultRoleInGenerateToken() {
+        String token = jwtService.generateToken("user123");
+        assertNotNull(token);
+
+        String role = jwtService.extractRole(token);
+        assertEquals("USER", role);
+    }
+}
+</file>
+
+<file path="src/test/java/com/sha/employee_management/UserControllerTest.java">
+package com.sha.employee_management;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sha.employee_management.controller.UserController;
+import com.sha.employee_management.dto.ChangePasswordRequest;
+import com.sha.employee_management.dto.CreateUserRequest;
+import com.sha.employee_management.dto.UserResponse;
+import com.sha.employee_management.entity.Role;
+import com.sha.employee_management.exception.GlobalExceptionHandler;
+import com.sha.employee_management.exception.UserAlreadyExistsException;
+import com.sha.employee_management.service.UserService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@ExtendWith(MockitoExtension.class)
+class UserControllerTest {
+
+    private MockMvc mockMvc;
+
+    @Mock
+    private UserService userService;
+
+    @InjectMocks
+    private UserController userController;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(userController)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+    }
+
+    @Test
+    void testGetCurrentUser_ReturnsProfile() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("testuser", null, List.of())
+        );
+
+        when(userService.getUserProfile("testuser"))
+                .thenReturn(new UserResponse(1L, "testuser", Role.USER));
+
+        mockMvc.perform(get("/users/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.username").value("testuser"))
+                .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void testChangePassword_Success() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("testuser", null, List.of())
+        );
+
+        ChangePasswordRequest request = new ChangePasswordRequest("oldSecret", "newSecret123");
+        doNothing().when(userService).changePassword(eq("testuser"), any(ChangePasswordRequest.class));
+
+        mockMvc.perform(put("/users/change-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Password changed successfully"));
+    }
+
+    @Test
+    void testChangePassword_IncorrectCurrentPassword_Returns400() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("testuser", null, List.of())
+        );
+
+        ChangePasswordRequest request = new ChangePasswordRequest("wrongOldSecret", "newSecret123");
+        doThrow(new IllegalArgumentException("Current password is incorrect"))
+                .when(userService).changePassword(eq("testuser"), any(ChangePasswordRequest.class));
+
+        mockMvc.perform(put("/users/change-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Current password is incorrect"));
+    }
+
+    @Test
+    void testGetAllUsers_ReturnsList() throws Exception {
+        when(userService.getAllUsers()).thenReturn(List.of(
+                new UserResponse(1L, "admin", Role.ADMIN),
+                new UserResponse(2L, "user1", Role.USER)
+        ));
+
+        mockMvc.perform(get("/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].username").value("admin"))
+                .andExpect(jsonPath("$[1].username").value("user1"));
+    }
+
+    @Test
+    void testCreateUser_Success() throws Exception {
+        CreateUserRequest request = new CreateUserRequest("newAdmin", "secretPassword", Role.ADMIN);
+        UserResponse response = new UserResponse(10L, "newAdmin", Role.ADMIN);
+
+        when(userService.createUser(any(CreateUserRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(10))
+                .andExpect(jsonPath("$.username").value("newAdmin"))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+    }
+
+    @Test
+    void testCreateUser_DuplicateUsername_Returns409() throws Exception {
+        CreateUserRequest request = new CreateUserRequest("existingUser", "secretPassword", Role.USER);
+
+        when(userService.createUser(any(CreateUserRequest.class)))
+                .thenThrow(new UserAlreadyExistsException("Username 'existingUser' already exists"));
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.message").value("Username 'existingUser' already exists"));
+    }
+}
+</file>
+
+<file path=".env.example">
+# Server Configuration
+SERVER_PORT=8080
+FRONTEND_PORT=5173
+
+# MySQL Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=employee_db
+DB_URL=jdbc:mysql://localhost:3306/employee_db
+DB_USERNAME=root
+DB_PASSWORD=Root@123
+
+# JWT Security Configuration
+JWT_SECRET=1CodeWithPurpose2BuildWithPassion3NeverStopLearning4
+
+# Default Admin User Initialization
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_PASSWORD=Admin@123
+</file>
+
 <file path=".gitattributes">
 /mvnw text eol=lf
 *.cmd text eol=crlf
-</file>
-
-<file path=".gitignore">
-HELP.md
-target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
-.vscode/
 </file>
 
 <file path="mvnw">
@@ -1310,6 +2557,755 @@ try {
 Write-Output "MVN_CMD=$MAVEN_HOME/bin/$MVN_CMD"
 </file>
 
+<file path="src/main/java/com/sha/employee_management/auth/AuthController.java">
+package com.sha.employee_management.auth;
+
+import com.sha.employee_management.entity.User;
+import com.sha.employee_management.security.JwtService;
+import com.sha.employee_management.service.UserService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+
+    private final JwtService jwtService;
+    private final UserService userService;
+    private final PasswordEncoder passwordEncoder;
+
+    public AuthController(JwtService jwtService,
+                          UserService userService,
+                          PasswordEncoder passwordEncoder) {
+        this.jwtService = jwtService;
+        this.userService = userService;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        AuthResponse response = userService.register(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+        User user;
+        try {
+            user = userService.findByUsername(request.getUsername());
+        } catch (Exception e) {
+            throw new BadCredentialsException("Invalid username or password");
+        }
+
+        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new BadCredentialsException("Invalid username or password");
+        }
+
+        String token = jwtService.generateToken(user.getUsername(), user.getRole().name());
+        return ResponseEntity.ok(new AuthResponse(token, user.getUsername(), user.getRole().name(), "Login successful"));
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/auth/LoginRequest.java">
+package com.sha.employee_management.auth;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class LoginRequest {
+
+    @NotBlank(message = "Username cannot be blank")
+    private String username;
+
+    @NotBlank(message = "Password cannot be blank")
+    private String password;
+
+    public LoginRequest() {}
+
+    public LoginRequest(String username, String password) {
+        this.username = username;
+        this.password = password;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/config/SecurityConfig.java">
+package com.sha.employee_management.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.sha.employee_management.dto.ErrorResponse;
+import com.sha.employee_management.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.time.LocalDateTime;
+
+@Configuration
+public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtFilter;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtFilter) {
+        this.jwtFilter = jwtFilter;
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+
+        http
+                .cors(cors -> {})
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/auth/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs/**"
+                        ).permitAll()
+                        .requestMatchers("/users/me", "/users/change-password").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/users", "/users/").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/users", "/users/").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/employees", "/employees/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/employees", "/employees/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/employees", "/employees/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/employees", "/employees/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
+                )
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            ErrorResponse error = new ErrorResponse(
+                                    LocalDateTime.now(),
+                                    HttpStatus.UNAUTHORIZED.value(),
+                                    HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                                    "Authentication required: " + authException.getMessage(),
+                                    request.getRequestURI()
+                            );
+                            objectMapper.writeValue(response.getOutputStream(), error);
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            ErrorResponse error = new ErrorResponse(
+                                    LocalDateTime.now(),
+                                    HttpStatus.FORBIDDEN.value(),
+                                    HttpStatus.FORBIDDEN.getReasonPhrase(),
+                                    "Access denied: " + accessDeniedException.getMessage(),
+                                    request.getRequestURI()
+                            );
+                            objectMapper.writeValue(response.getOutputStream(), error);
+                        })
+                )
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/dto/EmployeeDTO.java">
+package com.sha.employee_management.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+
+public class EmployeeDTO {
+
+    private Long id;
+
+    @NotBlank(message = "Name cannot be blank")
+    private String name;
+
+    @NotBlank(message = "Email cannot be blank")
+    @Email(message = "Email should be valid")
+    private String email;
+
+    @NotBlank(message = "Department cannot be blank")
+    private String department;
+
+    public EmployeeDTO() {}
+
+    public EmployeeDTO(Long id, String name, String email, String department) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.department = department;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/exception/GlobalExceptionHandler.java">
+package com.sha.employee_management.exception;
+
+import com.sha.employee_management.dto.ErrorResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.NoSuchElementException;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    // 400 - Validation errors
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex,
+                                                                    HttpServletRequest request) {
+        Map<String, String> errors = new HashMap<>();
+        for (FieldError error : ex.getBindingResult().getFieldErrors()) {
+            errors.put(error.getField(), error.getDefaultMessage());
+        }
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                "Validation failed for one or more fields",
+                request.getRequestURI(),
+                errors
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    // 400 - Bad Request (Illegal Arguments or Malformed JSON)
+    @ExceptionHandler({IllegalArgumentException.class, HttpMessageNotReadableException.class})
+    public ResponseEntity<ErrorResponse> handleBadRequestException(Exception ex,
+                                                                   HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
+    }
+
+    // 401 - Unauthorized (Bad credentials, UsernameNotFound, Authentication failed)
+    @ExceptionHandler({BadCredentialsException.class, UsernameNotFoundException.class, AuthenticationException.class})
+    public ResponseEntity<ErrorResponse> handleAuthenticationException(Exception ex,
+                                                                       HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                ex.getMessage() != null ? ex.getMessage() : "Invalid username or password",
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+    }
+
+    // 403 - Forbidden (Access Denied)
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex,
+                                                                     HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.FORBIDDEN.value(),
+                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                "Access denied: you do not have permission to access this resource",
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
+    }
+
+    // 404 - Not Found
+    @ExceptionHandler({ResourceNotFoundException.class, NoSuchElementException.class, NoResourceFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNotFoundException(Exception ex,
+                                                                 HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
+    // 409 - Conflict (User already exists)
+    @ExceptionHandler(UserAlreadyExistsException.class)
+    public ResponseEntity<ErrorResponse> handleConflictException(UserAlreadyExistsException ex,
+                                                                 HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+    }
+
+    // 500 - Internal Server Error
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneralException(Exception ex,
+                                                                HttpServletRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+                LocalDateTime.now(),
+                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
+                ex.getMessage() != null ? ex.getMessage() : "An unexpected internal server error occurred",
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/security/JwtAuthenticationFilter.java">
+package com.sha.employee_management.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.lang.NonNull;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+
+    public JwtAuthenticationFilter(JwtService jwtService) {
+        this.jwtService = jwtService;
+    }
+
+    @Override
+    protected void doFilterInternal(@NonNull HttpServletRequest request,
+                                    @NonNull HttpServletResponse response,
+                                    @NonNull FilterChain filterChain)
+            throws ServletException, IOException {
+
+        String header = request.getHeader("Authorization");
+
+        if (header != null && header.startsWith("Bearer ")) {
+            String token = header.substring(7);
+
+            try {
+                String username = jwtService.extractUsername(token);
+                String role = jwtService.extractRole(token);
+
+                if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                    List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+                    if (role != null && !role.isBlank()) {
+                        String formattedRole = role.startsWith("ROLE_") ? role : "ROLE_" + role;
+                        authorities.add(new SimpleGrantedAuthority(formattedRole));
+                    }
+
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(
+                                    username,
+                                    null,
+                                    authorities
+                            );
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
+            } catch (Exception e) {
+                // In case of invalid or expired token, clear context
+                SecurityContextHolder.clearContext();
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/security/JwtService.java">
+package com.sha.employee_management.security;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+import java.util.function.Function;
+
+@Service
+public class JwtService {
+
+    @Value("${jwt.secret}")
+    private String secretKey;
+
+    private SecretKey getSigningKey() {
+        byte[] keyBytes = secretKey.getBytes(StandardCharsets.UTF_8);
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    public String generateToken(String username, String role) {
+        return Jwts.builder()
+                .subject(username)
+                .claim("role", role)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 10)) // 10 hours
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public String generateToken(String username) {
+        return generateToken(username, "USER");
+    }
+
+    public Claims extractAllClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+
+    public String extractRole(String token) {
+        return extractClaim(token, claims -> claims.get("role", String.class));
+    }
+
+    public boolean isTokenExpired(String token) {
+        return extractClaim(token, Claims::getExpiration).before(new Date());
+    }
+
+    public boolean isTokenValid(String token, String username) {
+        final String extractedUsername = extractUsername(token);
+        return (extractedUsername != null && extractedUsername.equals(username) && !isTokenExpired(token));
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/service/impl/EmployeeServiceImpl.java">
+package com.sha.employee_management.service.impl;
+
+import com.sha.employee_management.dto.EmployeeDTO;
+import com.sha.employee_management.entity.Employee;
+import com.sha.employee_management.exception.ResourceNotFoundException;
+import com.sha.employee_management.repository.EmployeeRepository;
+import com.sha.employee_management.service.EmployeeService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class EmployeeServiceImpl implements EmployeeService {
+
+    private final EmployeeRepository repository;
+
+    public EmployeeServiceImpl(EmployeeRepository repository) {
+        this.repository = repository;
+    }
+
+    @Override
+    public EmployeeDTO saveEmployee(EmployeeDTO dto) {
+        Employee employee = new Employee();
+
+        employee.setName(dto.getName());
+        employee.setEmail(dto.getEmail());
+        employee.setDepartment(dto.getDepartment());
+
+        Employee saved = repository.save(employee);
+
+        return mapToDTO(saved);
+    }
+
+    @Override
+    public List<EmployeeDTO> getAllEmployees() {
+        return repository.findAll()
+                .stream()
+                .map(this::mapToDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<EmployeeDTO> getEmployees(Pageable pageable) {
+        return repository.findAll(pageable)
+                .map(this::mapToDTO);
+    }
+
+    @Override
+    public EmployeeDTO updateEmployee(Long id, EmployeeDTO dto) {
+        Employee employee = repository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
+
+        employee.setName(dto.getName());
+        employee.setEmail(dto.getEmail());
+        employee.setDepartment(dto.getDepartment());
+
+        Employee updated = repository.save(employee);
+
+        return mapToDTO(updated);
+    }
+
+    @Override
+    public void deleteEmployee(Long id) {
+        if (!repository.existsById(id)) {
+            throw new ResourceNotFoundException("Employee not found with id: " + id);
+        }
+        repository.deleteById(id);
+    }
+
+    private EmployeeDTO mapToDTO(Employee employee) {
+        EmployeeDTO dto = new EmployeeDTO();
+
+        dto.setId(employee.getId());
+        dto.setName(employee.getName());
+        dto.setEmail(employee.getEmail());
+        dto.setDepartment(employee.getDepartment());
+
+        return dto;
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/service/impl/UserServiceImpl.java">
+package com.sha.employee_management.service.impl;
+
+import com.sha.employee_management.auth.AuthResponse;
+import com.sha.employee_management.auth.RegisterRequest;
+import com.sha.employee_management.dto.ChangePasswordRequest;
+import com.sha.employee_management.dto.CreateUserRequest;
+import com.sha.employee_management.dto.UserResponse;
+import com.sha.employee_management.entity.Role;
+import com.sha.employee_management.entity.User;
+import com.sha.employee_management.exception.UserAlreadyExistsException;
+import com.sha.employee_management.repository.UserRepository;
+import com.sha.employee_management.service.UserService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository repository;
+    private final PasswordEncoder passwordEncoder;
+
+    public UserServiceImpl(UserRepository repository,
+                           PasswordEncoder passwordEncoder) {
+        this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    @Override
+    public AuthResponse register(RegisterRequest request) {
+        if (repository.findByUsername(request.getUsername()).isPresent()) {
+            throw new UserAlreadyExistsException("Username '" + request.getUsername() + "' is already taken");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setRole(Role.USER); // Default new registrations safely to USER role
+
+        User savedUser = repository.save(user);
+
+        return new AuthResponse(savedUser.getUsername(), savedUser.getRole().name(), "User registered successfully");
+    }
+
+    @Override
+    public User register(User user) {
+        if (repository.findByUsername(user.getUsername()).isPresent()) {
+            throw new UserAlreadyExistsException("Username '" + user.getUsername() + "' is already taken");
+        }
+        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        user.setRole(Role.USER); // Default new registrations safely to USER role
+        return repository.save(user);
+    }
+
+    @Override
+    public User findByUsername(String username) {
+        return repository.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+    }
+
+    @Override
+    public UserResponse getUserProfile(String username) {
+        User user = findByUsername(username);
+        return new UserResponse(user.getId(), user.getUsername(), user.getRole());
+    }
+
+    @Override
+    public void changePassword(String username, ChangePasswordRequest request) {
+        User user = findByUsername(username);
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new IllegalArgumentException("Current password is incorrect");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        repository.save(user);
+    }
+
+    @Override
+    public List<UserResponse> getAllUsers() {
+        return repository.findAll().stream()
+                .map(user -> new UserResponse(user.getId(), user.getUsername(), user.getRole()))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public UserResponse createUser(CreateUserRequest request) {
+        if (repository.findByUsername(request.getUsername()).isPresent()) {
+            throw new UserAlreadyExistsException("Username '" + request.getUsername() + "' already exists");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setRole(request.getRole());
+
+        User savedUser = repository.save(user);
+        return new UserResponse(savedUser.getId(), savedUser.getUsername(), savedUser.getRole());
+    }
+}
+</file>
+
+<file path="src/main/java/com/sha/employee_management/service/UserService.java">
+package com.sha.employee_management.service;
+
+import com.sha.employee_management.auth.AuthResponse;
+import com.sha.employee_management.auth.RegisterRequest;
+import com.sha.employee_management.dto.ChangePasswordRequest;
+import com.sha.employee_management.dto.CreateUserRequest;
+import com.sha.employee_management.dto.UserResponse;
+import com.sha.employee_management.entity.User;
+
+import java.util.List;
+
+public interface UserService {
+
+    AuthResponse register(RegisterRequest request);
+
+    User register(User user);
+
+    User findByUsername(String username);
+
+    UserResponse getUserProfile(String username);
+
+    void changePassword(String username, ChangePasswordRequest request);
+
+    List<UserResponse> getAllUsers();
+
+    UserResponse createUser(CreateUserRequest request);
+}
+</file>
+
 <file path="src/main/java/com/sha/employee_management/EmployeeManagementApplication.java">
 package com.sha.employee_management;
 
@@ -1326,17 +3322,81 @@ public class  EmployeeManagementApplication {
 }
 </file>
 
+<file path=".gitignore">
+HELP.md
+.env
+.env.local
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+</file>
+
+<file path="src/main/java/com/sha/employee_management/service/EmployeeService.java">
+package com.sha.employee_management.service;
+
+import com.sha.employee_management.dto.EmployeeDTO;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+
+import java.util.List;
+
+public interface EmployeeService {
+
+    EmployeeDTO saveEmployee(EmployeeDTO employeeDTO);
+
+    List<EmployeeDTO> getAllEmployees();
+
+    Page<EmployeeDTO> getEmployees(Pageable pageable);
+
+    EmployeeDTO updateEmployee(Long id, EmployeeDTO employeeDTO);
+
+    void deleteEmployee(Long id);
+}
+</file>
+
 <file path="src/main/resources/application.properties">
 spring.application.name=employee-management
 
-spring.datasource.url=jdbc:mysql://localhost:3306/employee_db
-spring.datasource.username=root
-spring.datasource.password=Root@123
+spring.datasource.url=${DB_URL:jdbc:mysql://localhost:3306/employee_db}
+spring.datasource.username=${DB_USERNAME:root}
+spring.datasource.password=${DB_PASSWORD:Root@123}
 
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
 
-jwt.secret=1CodeWithPurpose2BuildWithPassion3NeverStopLearning4
+jwt.secret=${JWT_SECRET:1CodeWithPurpose2BuildWithPassion3NeverStopLearning4}
+
+app.default-admin.username=${DEFAULT_ADMIN_USERNAME:admin}
+app.default-admin.password=${DEFAULT_ADMIN_PASSWORD:Admin@123}
 </file>
 
 <file path="pom.xml">
@@ -1379,6 +3439,10 @@ jwt.secret=1CodeWithPurpose2BuildWithPassion3NeverStopLearning4
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
 
 		<dependency>
@@ -1468,10 +3532,11 @@ jwt.secret=1CodeWithPurpose2BuildWithPassion3NeverStopLearning4
 package com.sha.employee_management.controller;
 
 import com.sha.employee_management.dto.EmployeeDTO;
-import com.sha.employee_management.entity.Employee;
 import com.sha.employee_management.service.EmployeeService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -1492,7 +3557,8 @@ public class EmployeeController {
     }
 
     @PostMapping
-    public EmployeeDTO createEmployee(@RequestBody EmployeeDTO employeeDTO){
+    @ResponseStatus(HttpStatus.CREATED)
+    public EmployeeDTO createEmployee(@Valid @RequestBody EmployeeDTO employeeDTO) {
         return service.saveEmployee(employeeDTO);
     }
 
@@ -1503,37 +3569,15 @@ public class EmployeeController {
 
     @PutMapping("/{id}")
     public EmployeeDTO updateEmployee(@PathVariable Long id,
-                                      @RequestBody EmployeeDTO employeeDTO) {
+                                      @Valid @RequestBody EmployeeDTO employeeDTO) {
         return service.updateEmployee(id, employeeDTO);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteEmployee(@PathVariable Long id) {
         service.deleteEmployee(id);
     }
-}
-</file>
-
-<file path="src/main/java/com/sha/employee_management/service/EmployeeService.java">
-package com.sha.employee_management.service;
-
-import com.sha.employee_management.dto.EmployeeDTO;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
-import java.util.List;
-
-public interface EmployeeService {
-
-    EmployeeDTO saveEmployee(EmployeeDTO employeeDTO);
-
-    List<EmployeeDTO> getAllEmployees();
-
-    Page<EmployeeDTO> getEmployees(Pageable pageable);
-
-    EmployeeDTO updateEmployee(Long id, EmployeeDTO employeeDTO);
-
-    void deleteEmployee(Long id);
 }
 </file>
 
