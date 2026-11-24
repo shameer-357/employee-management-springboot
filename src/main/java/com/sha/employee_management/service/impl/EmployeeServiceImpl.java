@@ -2,9 +2,9 @@ package com.sha.employee_management.service.impl;
 
 import com.sha.employee_management.dto.EmployeeDTO;
 import com.sha.employee_management.entity.Employee;
+import com.sha.employee_management.exception.ResourceNotFoundException;
 import com.sha.employee_management.repository.EmployeeRepository;
 import com.sha.employee_management.service.EmployeeService;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -23,7 +23,6 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public EmployeeDTO saveEmployee(EmployeeDTO dto) {
-
         Employee employee = new Employee();
 
         employee.setName(dto.getName());
@@ -37,7 +36,6 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public List<EmployeeDTO> getAllEmployees() {
-
         return repository.findAll()
                 .stream()
                 .map(this::mapToDTO)
@@ -46,16 +44,14 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public Page<EmployeeDTO> getEmployees(Pageable pageable) {
-
         return repository.findAll(pageable)
                 .map(this::mapToDTO);
     }
 
     @Override
     public EmployeeDTO updateEmployee(Long id, EmployeeDTO dto) {
-
         Employee employee = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Employee not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found with id: " + id));
 
         employee.setName(dto.getName());
         employee.setEmail(dto.getEmail());
@@ -68,15 +64,16 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public void deleteEmployee(Long id) {
-
+        if (!repository.existsById(id)) {
+            throw new ResourceNotFoundException("Employee not found with id: " + id);
+        }
         repository.deleteById(id);
     }
 
-    private EmployeeDTO mapToDTO(Employee employee){
-
+    private EmployeeDTO mapToDTO(Employee employee) {
         EmployeeDTO dto = new EmployeeDTO();
 
-        dto.setId(employee.getId());   // IMPORTANT
+        dto.setId(employee.getId());
         dto.setName(employee.getName());
         dto.setEmail(employee.getEmail());
         dto.setDepartment(employee.getDepartment());

@@ -1,10 +1,11 @@
 package com.sha.employee_management.controller;
 
 import com.sha.employee_management.dto.EmployeeDTO;
-import com.sha.employee_management.entity.Employee;
 import com.sha.employee_management.service.EmployeeService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,7 +26,8 @@ public class EmployeeController {
     }
 
     @PostMapping
-    public EmployeeDTO createEmployee(@RequestBody EmployeeDTO employeeDTO){
+    @ResponseStatus(HttpStatus.CREATED)
+    public EmployeeDTO createEmployee(@Valid @RequestBody EmployeeDTO employeeDTO) {
         return service.saveEmployee(employeeDTO);
     }
 
@@ -36,11 +38,12 @@ public class EmployeeController {
 
     @PutMapping("/{id}")
     public EmployeeDTO updateEmployee(@PathVariable Long id,
-                                      @RequestBody EmployeeDTO employeeDTO) {
+                                      @Valid @RequestBody EmployeeDTO employeeDTO) {
         return service.updateEmployee(id, employeeDTO);
     }
 
     @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteEmployee(@PathVariable Long id) {
         service.deleteEmployee(id);
     }
